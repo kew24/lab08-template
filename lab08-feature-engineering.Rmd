@@ -45,6 +45,8 @@ Here we set up the recipe:
 ```{r prep-recipe}
 ames_recipe <- 
   recipe(Sale_Price ~ Gr_Liv_Area + Latitude + Longitude, data = ames_train) %>% 
+  #make the scale the SAME for all of these!!!!
+  step_range(Gr_Liv_Area, Latitude, Longitude, min = 0, max = 1) %>%
   prep()
 ames_recipe %>% summary()
 ```
@@ -86,6 +88,13 @@ fitted_workflow %>%
   ggplot(aes(x = estimate, y = term)) + geom_col()
 ```
 
+```{r}
+ames_train %>% select(Gr_Liv_Area, Latitude, Longitude) %>% summary()
+```
+
+
+Because these features are on such totally different scalees, if we want a similar effect, we need a huge coefficient.
+
 ## Test the model
 
 ```{r preprocess-test-data}
@@ -99,7 +108,12 @@ fitted_workflow %>%
 fitted_workflow %>%
   predict(ames_test) %>% 
   bind_cols(ames_test) %>% 
-  ggplot(aes(x = Sale_Price, y = Sale_Price - .pred)) + geom_point()
+  ggplot(aes(x = Sale_Price, y = Sale_Price - .pred)) + geom_point() + geom_smooth()
+
+fitted_workflow %>%
+  predict(ames_test) %>% 
+  bind_cols(ames_test) %>% 
+  ggplot(aes(x = .pred, y = Sale_Price - .pred)) + geom_point() + geom_smooth()
 ```
 
 ## Conditional Logic
