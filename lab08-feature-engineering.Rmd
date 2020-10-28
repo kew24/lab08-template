@@ -1,6 +1,6 @@
 ---
 title: 'Lab 8: Feature Engineering'
-author: "K Arnold"
+author: "K Arnold & K Westra"
 date: "10/23/2020"
 output: html_document
 ---
@@ -118,6 +118,9 @@ fitted_workflow %>%
 
 ## Conditional Logic
 
+Do remodeled homes sell for more?  
+From codebook: remodel data = construction date if no remodeling or additions.
+
 ```{r}
 ames_train_2 <- ames_train %>% 
   mutate(remodeled = case_when(
@@ -135,3 +138,135 @@ ames_train_2 %>%
   geom_smooth(method = "lm")
 ```
 
+It looks like remodelled homes sell for... less?
+Yet correlation ≠ causation, and it might be that somethinng that caused a model also brought about price-lowering things... 
+
+***
+
+#### *AS AN ASIDE:*
+
+```{r sum-as-count}
+ames_2 <- ames %>%
+  mutate(remodeled = Year_Remod_Add != Year_Built)
+
+ames_2 %>%
+  group_by (remodeled) %>%
+  summarize(n = n()) %>%
+  mutate(proportion = n / sum(n))
+
+ames_2 %>%
+  summarize(num_remodeled = sum(remodeled == T),
+            Prop_remodeled = mean(remodeled == T))
+
+```
+
+***
+
+Linear model... treating remodelled homes differently from non-remodelled.
+
+**dummy encoding**
+
+essentailly, we just add a term:
+
+Sale_Price =   
+   intercept_other  
+   + coef_remodeled * (1 if remodeled)  
+   + coef_sqft      * Gr_Liv_Area  
+
+(similar to what we did in the aside above!)
+A *conditional* intercept.
+
+How to do it:
+
+```{r}
+ames_recipe_3 <- 
+  recipe(Sale_Price ~ Gr_Liv_Area + remodeled, data = ames_train_2) %>% 
+  step_dummy(remodeled) %>%
+  # rescalling step:
+  #step_range(all_numeric(), -all_outcomes(), min = 0, max = 1) %>% 
+  prep()
+
+baked_ames_train <- 
+  ames_recipe_3 %>% bake(new_data = ames_train_2)
+
+baked_ames_train %>% head(5) %>% knitr::kable(format = "html")
+#having a "remodeled_no" column is unnecessary -- it's just a 0 in our remodeled_yes col!
+```
+
+```{r}
+ames_model_2 <- linear_reg() %>% set_engine("lm") %>% 
+  fit(Sale_Price ~ ., data = baked_ames_train)
+ames_model_2 %>% tidy() %>% select(term, estimate) %>% knitr::kable()
+```
+
+Sale_Price = 
+   22643 
+   + -18424.0789 * (1 if remodeled)
+   + 109.1132 * Gr_Liv_Area
+   
+If remodelleed, subtract 18k from price :( otherwise, just keep going.
+
+```{r}
+typeof(baked_ames_train$remodeled_yes)
+baked_ames_train %>%
+  mutate(remodeled_yes = as.factor(remodeled_yes)) %>%
+ggplot(aes(x = Gr_Liv_Area, y = Sale_Price, color = remodeled_yes)) +
+  geom_point() +
+  geom_function(fun = function(x) (22643.4248 - 18424.0789) + 109.1132 * x, color = "blue") +
+  geom_function(fun = function(x) 22643.4248 + 109.1132 * x, color = "green")
+```
+
+More than 2 options:
+
+```{r}
+ames_train %>% count(Bldg_Type) %>% knitr::kable()
+ames_recipe_4 <- 
+  recipe(Sale_Price ~ Gr_Liv_Area + Bldg_Type, data = ames_train) %>% 
+  step_dummy(Bldg_Type) %>%
+  #step_range(all_numeric(), -all_outcomes(), min = 0, max = 1) %>%
+  prep()
+baked_ames_train <- 
+  ames_recipe_4 %>% bake(new_data = ames_train_2)
+baked_ames_train %>% head(5) %>% knitr::kable(format = "html")
+```
+
+Creates 4 columns!
+^^ the first isn't included because it's built into the intercept.
+
+The other 4 columns are just used in reference to 
+
+Which one gets treated as base: depends on package.
+Statistical inferenece: which condition is being treated as baseline. (this is important to think this through... does one make more sense than the other)
+
+>> ran into this problem w/ CSR data -- homeless was treated as the baseline to which everything else was statistically signifiant.!s
+
+
+** contrasts w/ baseline!! ** 
+
+**Interpret** as: diff between ____ and [baseline]
+
+
+```{r, eval=F, include=F}
+ggplot(baked_ames_train, aes(x = Gr_Liv_Area, y = Sale_Price, color = Bldg_Type)) +
+  geom_point()
+  #geom_function(fun = function(x) (22643.4248 - 18424.0789) + 109.1132 * x, color = "blue") +
+  #geom_function(fun = function(x) 22643.4248 + 109.1132 * x, color = "green")
+```
+
+## Another kind of model: Decision Trees
+
+[see examples](https://cs.calvin.edu/courses/data/202/ka37/slides/w09/w9d2-conditional-logic.html#16) 
+and specific [R code and output](https://cs.calvin.edu/courses/data/202/ka37/slides/w09/w9d2-conditional-logic.html#17)
+
+different parts of tree can look @ diff things
+
+**TWO KINDS OF REGRESSION MODELS**
+
+Linear Regression
+- To make a prediction: multiply terms by constants, sum it all up  
+- Conditional logic by explicitly transforming data to invent special terms  
+- Output looks like lines (or curves, if you add $x^2$ terms)  
+
+Decision Tree Regression  
+- To make a prediction: follow conditional logic rules (determined automatically from data) to output a number  
+- Output looks like stair-steps  
